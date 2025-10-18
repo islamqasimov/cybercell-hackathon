@@ -1,0 +1,221 @@
+wazuh not starting 
+
+
+wazuh-1  | 2025-10-18T13:16:47.877Z     ERROR   [publisher_pipeline_output]     pipeline/output.go:154  Failed to connect to backoff(elasticsearch(https://wazuh-indexer:9200)): 503 Service Unavailable: OpenSearch Security not initialized.
+
+wazuh-indexer-1    | [2025-10-18T13:19:04,998][ERROR][o.o.s.c.ConfigurationLoaderSecurity7] [wazuh.indexer] Failure no such index [.opendistro_security] retrieving configuration for [INTERNALUSERS, ACTIONGROUPS, CONFIG, ROLES, ROLESMAPPING, TENANTS, NODESDN, WHITELIST, ALLOWLIST, AUDIT] (index=.opendistro_security)
+
+wazuh-dashboard-1  | {"type":"log","@timestamp":"2025-10-18T13:19:14Z","tags":["error","opensearch","data"],"pid":54,"message":"[ConnectionError]: getaddrinfo ENOTFOUND wazuh.indexer"}
+
+postgres-1         | 2025-10-18 13:18:58.189 UTC [50] FATAL:  database "admin" does not exist
+
+No alerts showing 
+
+As well as demo didn't worked
+
+========================================
+
+Security AI Demo - Live Attack Detection
+
+========================================
+
+[STEP] 1. System Health Check
+
+Checking all services...
+
+[INFO] ✓ FastAPI is running
+
+[INFO] ✓ Juice Shop is running
+
+Press ENTER to continue...
+
+========================================
+
+2. Baseline Metrics (Before Attack)
+
+========================================
+
+[STEP] Fetching current alerts...
+
+[METRIC] Current Alerts: 0
+
+[STEP] Checking risk score for Juice Shop...
+
+[METRIC] Risk Score (Before): 1.88/10
+
+Press ENTER to continue...
+
+========================================
+
+3. Launching SQL Injection Attack
+
+========================================
+
+[STEP] Starting automated SQL injection probe...
+
+[INFO] Attack scenario: SQL Injection against Juice Shop
+
+[INFO] Target: http://localhost:3000
+
+[INFO] Duration: ~10 seconds
+
+....................
+
+[INFO] Attack completed in 11s
+
+Press ENTER to continue...
+
+========================================
+
+4. Detection Phase
+
+========================================
+
+[STEP] Waiting for detection systems to process attack...
+
+[INFO] Wazuh is analyzing logs...
+
+[INFO] Anomaly detector is computing features...
+
+..........
+
+Press ENTER to continue...
+
+========================================
+
+5. Detection Results
+
+========================================
+
+[STEP] Fetching new alerts...
+
+[METRIC] New Alerts Detected: 0
+
+[METRIC] Mean Time To Detect (MTTD): 23s
+
+[INFO] ⚠ No new alerts detected yet. This may take longer in production.
+
+Press ENTER to continue...
+
+========================================
+
+6. Anomaly Detection Analysis
+
+========================================
+
+[STEP] Checking anomaly scores...
+
+Press ENTER to continue...
+
+========================================
+
+7. Risk Assessment
+
+========================================
+
+[STEP] Calculating composite risk score...
+
+[METRIC] Risk Score (Before): 1.88/10
+
+[METRIC] Risk Score (After): 1.88/10
+
+[METRIC] Risk Increase: +0
+
+[STEP] Risk Breakdown:
+
+{
+
+  "risk_score": 1.88,
+
+  "severity": "low",
+
+  "components": {
+
+    "alerts": 0,
+
+    "anomaly": 0,
+
+    "vulnerabilities": 7.5
+
+  },
+
+  "recent_alerts": 0,
+
+  "recent_anomalies": 0
+
+}
+
+Press ENTER to continue...
+
+========================================
+
+8. SOC Analyst AI Report
+
+========================================
+
+[INFO] No alerts available for report generation
+
+Press ENTER to continue...
+
+========================================
+
+9. Automated Response
+
+========================================
+
+[STEP] Executing automated response playbook...
+
+[INFO] No active alerts to respond to
+
+Press ENTER to continue...
+
+========================================
+
+10. Final Metrics Summary
+
+========================================
+
+[METRIC] Attack Duration: 11s
+
+[METRIC] Time to Detection (MTTD): 23s
+
+[METRIC] Alerts Generated: 0
+
+[METRIC] Detection Rate: 100%
+
+[METRIC] Risk Score Change: 1.88 → 1.88
+
+[STEP] Detection Layers Activated:
+
+  ✓ Wazuh Rule-Based Detection
+
+  ✓ ML Anomaly Detection
+
+  ✓ Risk Correlation Engine
+
+  ✓ SOC Analyst AI
+
+  ✓ Automated Response Playbook
+
+========================================
+
+Demo Complete!
+
+========================================
+
+Key Highlights:
+
+  • Real-time detection of SQL injection attack
+
+  • Multi-layer AI and rule-based detection
+
+  • Automated incident report generation
+
+  • Sub-minute detection and response times
+
+  • Zero false positives in this scenario
+
+[INFO] Dashboard available at: http://localhost:3001
+
+[INFO] API documentation at: http://localhost:8000/docs
+

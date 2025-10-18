@@ -1,89 +1,192 @@
 version: '3.8'
 
 services:
-  # PostgreSQL database
+  # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: cyberdefense_db
     environment:
-      POSTGRES_DB: cyberdefense
+      POSTGRES_DB: security_ai
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: hackathon2024
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
-      - cyber_net
+      - security_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Redis for real-time messaging
-  redis:
-    image: redis:7-alpine
-    container_name: cyberdefense_redis
+  # Juice Shop - Vulnerable Web Application
+  juiceshop:
+    image: bkimminich/juice-shop:latest
     ports:
-      - "6379:6379"
+      - "3000:3000"
+    volumes:
+      - ./logs/juiceshop:/var/log/juiceshop
     networks:
-      - cyber_net
+      - security_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # FastAPI Backend
-  backend:
-    build:
-      context: ./backend
+  # Wazuh Manager (Single Node)
+  wazuh:
+    image: wazuh/wazuh-manager:4.7.0
+    hostname: wazuh-manager
+    restart: always
+    ports:
+      - "1514:1514"     # Agent connection
+      - "1515:1515"     # Agent enrollment
+      - "55000:55000"   # API
+    environment:
+      - INDEXER_URL=https://wazuh-indexer:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=SecretPassword
+      - FILEBEAT_SSL_VERIFICATION_MODE=none
+      - API_USERNAME=wazuh-wui
+      - API_PASSWORD=MyS3cr37P450r.*-
+    volumes:
+      - wazuh_api_configuration:/var/ossec/api/configuration
+      - wazuh_etc:/var/ossec/etc
+      - wazuh_logs:/var/ossec/logs
+      - wazuh_queue:/var/ossec/queue
+      - wazuh_var_multigroups:/var/ossec/var/multigroups
+      - wazuh_integrations:/var/ossec/integrations
+      - wazuh_active_response:/var/ossec/active-response/bin
+      - wazuh_agentless:/var/ossec/agentless
+      - wazuh_wodles:/var/ossec/wodles
+      - filebeat_etc:/etc/filebeat
+      - filebeat_var:/var/lib/filebeat
+    networks:
+      - security_net
+    depends_on:
+      - wazuh-indexer
+
+  # Wazuh Indexer (Lightweight Elasticsearch)
+  wazuh-indexer:
+    image: wazuh/wazuh-indexer:4.7.0
+    hostname: wazuh-indexer
+    restart: always
+    ports:
+      - "9200:9200"
+    environment:
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "bootstrap.memory_lock=true"
+      - "discovery.type=single-node"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - wazuh_indexer_data:/var/lib/wazuh-indexer
+    networks:
+      - security_net
+
+  # Wazuh Dashboard
+  wazuh-dashboard:
+    image: wazuh/wazuh-dashboard:4.7.0
+    hostname: wazuh-dashboard
+    restart: always
+    ports:
+      - "443:5601"
+    environment:
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=SecretPassword
+      - WAZUH_API_URL=https://wazuh
+      - API_USERNAME=wazuh-wui
+      - API_PASSWORD=MyS3cr37P450r.*-
+    depends_on:
+      - wazuh-indexer
+      - wazuh
+    networks:
+      - security_net
+
+  # FastAPI Orchestration Service
+  fastapi:
+    build: 
+      context: ./fastapi
       dockerfile: Dockerfile
-    container_name: cyberdefense_backend
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://admin:hackathon2024@postgres:5432/cyberdefense
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-secret-key-change-in-production
-    depends_on:
-      - postgres
-      - redis
+      - DATABASE_URL=postgresql://admin:hackathon2024@postgres:5432/security_ai
+      - WAZUH_URL=https://wazuh:55000
+      - WAZUH_USER=wazuh-wui
+      - WAZUH_PASSWORD=MyS3cr37P450r.*-
+      - NESSUS_URL=https://nessus:8834
+      - NESSUS_ACCESS_KEY=your_key_here
+      - NESSUS_SECRET_KEY=your_secret_here
     volumes:
-      - ./backend:/app
+      - ./fastapi:/app
       - ./models:/app/models
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      wazuh:
+        condition: service_started
     networks:
-      - cyber_net
+      - security_net
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # React Frontend
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: cyberdefense_frontend
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
     ports:
-      - "5173:5173"
+      - "6379:6379"
+    networks:
+      - security_net
+
+  # Frontend Dashboard (Development Mode with Hot Reload)
+  frontend:
+    image: node:18-alpine
+    working_dir: /app
+    ports:
+      - "3001:3000"
     environment:
-      VITE_API_URL: http://localhost:8000
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_WS_URL=ws://localhost:8000/ws
+      - CHOKIDAR_USEPOLLING=true
     volumes:
       - ./frontend:/app
       - /app/node_modules
-    command: npm run dev -- --host
     depends_on:
-      - backend
+      - fastapi
     networks:
-      - cyber_net
+      - security_net
+    command: sh -c "npm install && npm start"
+    stdin_open: true
+    tty: true
 
-  # Vulnerable target for Red Team attacks (sandboxed)
-  target:
-    build:
-      context: ./target
-      dockerfile: Dockerfile
-    container_name: vulnerable_target
-    ports:
-      - "8080:80"
-    networks:
-      - cyber_net_isolated
+networks:
+  security_net:
+    driver: bridge
 
 volumes:
   postgres_data:
-
-networks:
-  cyber_net:
-    driver: bridge
-  cyber_net_isolated:
-    driver: bridge
-    internal: true
+  wazuh_api_configuration:
+  wazuh_etc:
+  wazuh_logs:
+  wazuh_queue:
+  wazuh_var_multigroups:
+  wazuh_integrations:
+  wazuh_active_response:
+  wazuh_agentless:
+  wazuh_wodles:
+  wazuh_indexer_data:
+  filebeat_etc:
+  filebeat_var:
