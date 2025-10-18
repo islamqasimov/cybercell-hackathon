@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    container_name: cyberdefense_db
+    environment:
+      POSTGRES_DB: cyberdefense
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: hackathon2024
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - cyber_net
+
+  # Redis for real-time messaging
+  redis:
+    image: redis:7-alpine
+    container_name: cyberdefense_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - cyber_net
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cyberdefense_backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://admin:hackathon2024@postgres:5432/cyberdefense
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-secret-key-change-in-production
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+      - ./models:/app/models
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - cyber_net
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cyberdefense_frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host
+    depends_on:
+      - backend
+    networks:
+      - cyber_net
+
+  # Vulnerable target for Red Team attacks (sandboxed)
+  target:
+    build:
+      context: ./target
+      dockerfile: Dockerfile
+    container_name: vulnerable_target
+    ports:
+      - "8080:80"
+    networks:
+      - cyber_net_isolated
+
+volumes:
+  postgres_data:
+
+networks:
+  cyber_net:
+    driver: bridge
+  cyber_net_isolated:
+    driver: bridge
+    internal: true
