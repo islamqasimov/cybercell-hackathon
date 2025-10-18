@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional, Dict
 import os
+import asyncio
 
 # Config
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:hackathon2024@postgres:5432/security_ai")
@@ -90,6 +91,12 @@ class ScanRequest(BaseModel):
     target: str
     validate_attacks: bool = True
 
+class RuleCreate(BaseModel):
+    rule_id: str
+    name: str
+    pattern: str
+    severity: str
+
 # Helper functions
 def get_db():
     db = SessionLocal()
@@ -109,7 +116,10 @@ async def get_stats():
     try:
         total_alerts = db.query(Alert).count()
         critical_alerts = db.query(Alert).filter(Alert.severity >= 10).count()
-        rules_created = db.query(RuleRecommendation).filter(RuleRecommendation.applied == True).count()
+        rules_created = db.query(RuleRecommendation).filter(
+            RuleRecommendation.applied == True,
+            RuleRecommendation.action == "CREATE"
+        ).count()
         vulns_found = db.query(Vulnerability).count()
         attacks_validated = db.query(Vulnerability).filter(Vulnerability.validated == True).count()
         
@@ -135,7 +145,8 @@ async def get_alerts(limit: int = 50):
                 "rule_description": a.rule_description,
                 "host": a.host,
                 "severity": a.severity,
-                "timestamp": a.timestamp.isoformat()
+                "timestamp": a.timestamp.isoformat(),
+                "raw_data": a.raw_data
             }
             for a in alerts
         ]
@@ -154,7 +165,42 @@ async def create_alert(alert: AlertCreate, background_tasks: BackgroundTasks):
         # Trigger AI analysis in background
         background_tasks.add_task(analyze_alert_for_rules, new_alert.id)
         
-        return {"id": new_alert.id}
+        return {"id": new_alert.id, "status": "created"}
+    finally:
+        db.close()
+
+@app.get("/rules")
+async def get_rules():
+    db = SessionLocal()
+    try:
+        rules = db.query(DetectionRule).order_by(DetectionRule.created_at.desc()).all()
+        return [
+            {
+                "id": r.id,
+                "rule_id": r.rule_id,
+                "name": r.name,
+                "pattern": r.pattern,
+                "severity": r.severity,
+                "enabled": r.enabled,
+                "auto_generated": r.auto_generated,
+                "created_at": r.created_at.isoformat()
+            }
+            for r in rules
+        ]
+    finally:
+        db.close()
+
+@app.post("/rules")
+async def create_rule(rule: RuleCreate):
+    db = SessionLocal()
+    try:
+        new_rule = DetectionRule(**rule.dict())
+        db.add(new_rule)
+        db.commit()
+        return {"status": "created", "rule_id": new_rule.rule_id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Error creating rule: {str(e)}")
     finally:
         db.close()
 
@@ -194,38 +240,57 @@ async def apply_recommendation(rec_id: int):
         
         # Create or modify rule
         if rec.action == "CREATE":
-            rule = DetectionRule(
-                rule_id=rec.rule_id,
-                name=rec.rule_id,
-                pattern=rec.suggested_pattern,
-                severity=rec.severity,
-                auto_generated=True
-            )
-            db.add(rule)
+            # Check if rule already exists
+            existing = db.query(DetectionRule).filter(
+                DetectionRule.rule_id == rec.rule_id
+            ).first()
+            
+            if not existing:
+                rule = DetectionRule(
+                    rule_id=rec.rule_id,
+                    name=rec.rule_id,
+                    pattern=rec.suggested_pattern,
+                    severity=rec.severity,
+                    auto_generated=True
+                )
+                db.add(rule)
+        
         elif rec.action == "MODIFY":
-            rule = db.query(DetectionRule).filter(DetectionRule.rule_id == rec.rule_id).first()
+            rule = db.query(DetectionRule).filter(
+                DetectionRule.rule_id == rec.rule_id
+            ).first()
             if rule:
                 rule.pattern = rec.suggested_pattern
+        
         elif rec.action == "DISABLE":
-            rule = db.query(DetectionRule).filter(DetectionRule.rule_id == rec.rule_id).first()
+            rule = db.query(DetectionRule).filter(
+                DetectionRule.rule_id == rec.rule_id
+            ).first()
             if rule:
                 rule.enabled = False
         
         rec.applied = True
         db.commit()
-        return {"status": "success"}
+        return {"status": "success", "action": rec.action, "rule_id": rec.rule_id}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Error applying recommendation: {str(e)}")
     finally:
         db.close()
 
 @app.post("/soc/analyze/{alert_id}")
-async def analyze_alert(alert_id: int):
-    await analyze_alert_for_rules(alert_id)
-    return {"status": "analyzing"}
+async def analyze_alert(alert_id: int, background_tasks: BackgroundTasks):
+    # Trigger background analysis
+    background_tasks.add_task(analyze_alert_for_rules, alert_id)
+    return {"status": "analyzing", "alert_id": alert_id}
 
 @app.post("/auditor/scan")
 async def run_security_audit(request: ScanRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(perform_security_scan, request.target, request.validate_attacks)
-    return {"status": "scanning"}
+    return {"status": "scanning", "target": request.target}
 
 @app.get("/auditor/results")
 async def get_audit_results():
@@ -233,9 +298,14 @@ async def get_audit_results():
     try:
         vulns = db.query(Vulnerability).order_by(Vulnerability.timestamp.desc()).limit(50).all()
         
+        total_vulns = len(vulns)
+        cvss_scores = [v.cvss_score for v in vulns if v.cvss_score]
+        cvss_avg = sum(cvss_scores) / len(cvss_scores) if cvss_scores else 0
+        
         return {
-            "files_analyzed": 247,  # Mock for now
-            "cvss_avg": sum(v.cvss_score for v in vulns) / len(vulns) if vulns else 0,
+            "files_analyzed": 247,  # Mock count
+            "cvss_avg": cvss_avg,
+            "total_vulnerabilities": total_vulns,
             "vulnerabilities": [
                 {
                     "id": v.id,
@@ -248,7 +318,8 @@ async def get_audit_results():
                     "cwe_id": v.cwe_id,
                     "validated": v.validated,
                     "attack_payload": v.attack_payload,
-                    "remediation": v.remediation
+                    "remediation": v.remediation,
+                    "timestamp": v.timestamp.isoformat()
                 }
                 for v in vulns
             ]
@@ -259,13 +330,31 @@ async def get_audit_results():
 # Background tasks
 async def analyze_alert_for_rules(alert_id: int):
     """AI analyzes alert and generates rule recommendations"""
-    from soc_analyst import analyze_and_recommend
-    await analyze_and_recommend(alert_id)
+    try:
+        from soc_analyst import analyze_and_recommend
+        await analyze_and_recommend(alert_id)
+        print(f"✓ Alert {alert_id} analyzed successfully")
+    except Exception as e:
+        print(f"✗ Error analyzing alert {alert_id}: {e}")
 
 async def perform_security_scan(target: str, validate: bool):
     """Scan code and validate vulnerabilities"""
-    from security_auditor import scan_and_validate
-    await scan_and_validate(target, validate)
+    try:
+        from security_auditor import scan_and_validate
+        await scan_and_validate(target, validate)
+        print(f"✓ Security scan complete for {target}")
+    except Exception as e:
+        print(f"✗ Error scanning {target}: {e}")
+
+# Startup event
+@app.on_event("startup")
+async def startup_event():
+    print("=" * 60)
+    print("AI Security Platform - Starting Up")
+    print("=" * 60)
+    print(f"Database: {DATABASE_URL.split('@')[1]}")
+    print("API Docs: http://localhost:8000/docs")
+    print("=" * 60)
 
 if __name__ == "__main__":
     import uvicorn
