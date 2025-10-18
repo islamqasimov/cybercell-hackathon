@@ -1,405 +1,511 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Activity, Shield, AlertTriangle, Target, Zap, TrendingUp, Clock, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Shield, Bot, Code, AlertTriangle, CheckCircle, Brain, FileCode, Activity, Zap, TrendingUp, AlertCircle, PlayCircle, RefreshCw } from 'lucide-react';
 
 const API_URL = 'http://localhost:8000';
-const WS_URL = 'ws://localhost:8000/ws';
 
-export default function SecurityDashboard() {
+export default function AISecurityDashboard() {
+  const [activeTab, setActiveTab] = useState('overview');
   const [alerts, setAlerts] = useState([]);
-  const [anomalies, setAnomalies] = useState([]);
-  const [metrics, setMetrics] = useState({
-    total_alerts: 0,
-    total_anomalies: 0,
-    avg_mttd: 0,
-    avg_mttr: 0,
-    detection_rate: 0
+  const [ruleRecommendations, setRuleRecommendations] = useState([]);
+  const [auditReport, setAuditReport] = useState(null);
+  const [stats, setStats] = useState({
+    totalAlerts: 0,
+    criticalAlerts: 0,
+    rulesCreated: 0,
+    vulnerabilitiesFound: 0,
+    attacksValidated: 0
   });
-  const [riskScore, setRiskScore] = useState({ risk_score: 0, severity: 'low' });
-  const [selectedAlert, setSelectedAlert] = useState(null);
-  const [socReport, setSocReport] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [connected, setConnected] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
 
-  // WebSocket connection
+  // Fetch data
   useEffect(() => {
-    let ws;
-    
-    const connect = () => {
-      ws = new WebSocket(WS_URL);
-      
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        setConnected(true);
-      };
-      
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'new_alert') {
-          fetchAlerts();
-          fetchMetrics();
-        } else if (data.type === 'action_executed') {
-          console.log('Action executed:', data.data);
-        }
-      };
-      
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setConnected(false);
-      };
-      
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
-        setConnected(false);
-        setTimeout(connect, 3000);
-      };
-    };
-    
-    connect();
-    
-    return () => {
-      if (ws) ws.close();
-    };
+    fetchAlerts();
+    fetchRuleRecommendations();
+    fetchStats();
+    const interval = setInterval(() => {
+      fetchAlerts();
+      fetchRuleRecommendations();
+      fetchStats();
+    }, 5000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Fetch data functions
-  const fetchAlerts = useCallback(async () => {
+  const fetchAlerts = async () => {
     try {
-      const response = await fetch(`${API_URL}/alerts?limit=50`);
+      const response = await fetch(`${API_URL}/alerts?limit=20`);
       const data = await response.json();
       setAlerts(data);
     } catch (error) {
       console.error('Error fetching alerts:', error);
     }
-  }, []);
+  };
 
-  const fetchAnomalies = useCallback(async () => {
+  const fetchRuleRecommendations = async () => {
     try {
-      const response = await fetch(`${API_URL}/anomalies?limit=20`);
+      const response = await fetch(`${API_URL}/soc/rule-recommendations`);
       const data = await response.json();
-      setAnomalies(data);
+      setRuleRecommendations(data);
     } catch (error) {
-      console.error('Error fetching anomalies:', error);
-    }
-  }, []);
-
-  const fetchMetrics = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_URL}/health`);
-      const data = await response.json();
-      
-      // Mock metrics for demo
-      setMetrics({
-        total_alerts: alerts.length,
-        total_anomalies: anomalies.length,
-        avg_mttd: 12.5,
-        avg_mttr: 3.2,
-        detection_rate: 95.8
-      });
-    } catch (error) {
-      console.error('Error fetching metrics:', error);
-    }
-  }, [alerts.length, anomalies.length]);
-
-  const fetchRiskScore = useCallback(async (host = 'juiceshop') => {
-    try {
-      const response = await fetch(`${API_URL}/risk?host=${host}`);
-      const data = await response.json();
-      setRiskScore(data);
-    } catch (error) {
-      console.error('Error fetching risk score:', error);
-    }
-  }, []);
-
-  const fetchSOCReport = async (alertId) => {
-    setLoading(true);
-    try {
-      const response = await fetch(`${API_URL}/soc/report/${alertId}`);
-      const data = await response.json();
-      setSocReport(data);
-    } catch (error) {
-      console.error('Error fetching SOC report:', error);
-    } finally {
-      setLoading(false);
+      console.error('Error fetching recommendations:', error);
     }
   };
 
-  const executeResponse = async (action, target, alertId) => {
+  const fetchStats = async () => {
     try {
-      await fetch(`${API_URL}/response/action`, {
+      const response = await fetch(`${API_URL}/stats`);
+      const data = await response.json();
+      setStats(data);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
+  };
+
+  const runSecurityAudit = async () => {
+    setScanning(true);
+    try {
+      const response = await fetch(`${API_URL}/auditor/scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, target, alert_id: alertId })
+        body: JSON.stringify({ target: 'juiceshop', validate_attacks: true })
       });
-      alert(`Action ${action} executed on ${target}`);
+      const data = await response.json();
+      setAuditReport(data);
+      setActiveTab('auditor');
     } catch (error) {
-      console.error('Error executing response:', error);
+      console.error('Error running audit:', error);
+    } finally {
+      setScanning(false);
     }
   };
 
-  const launchAttack = async (scenario) => {
-    alert(`Launching ${scenario} attack scenario...`);
-    // In production, this would trigger the attack script
-    setTimeout(() => {
-      fetchAlerts();
-      fetchAnomalies();
-      fetchRiskScore();
-    }, 5000);
+  const applyRuleRecommendation = async (ruleId) => {
+    try {
+      await fetch(`${API_URL}/soc/apply-recommendation/${ruleId}`, {
+        method: 'POST'
+      });
+      alert('Rule recommendation applied!');
+      fetchRuleRecommendations();
+    } catch (error) {
+      console.error('Error applying recommendation:', error);
+    }
   };
 
-  // Initial load
-  useEffect(() => {
-    fetchAlerts();
-    fetchAnomalies();
-    fetchMetrics();
-    fetchRiskScore();
-    
-    const interval = setInterval(() => {
-      fetchAlerts();
-      fetchAnomalies();
-      fetchRiskScore();
-    }, 5000);
-    
-    return () => clearInterval(interval);
-  }, [fetchAlerts, fetchAnomalies, fetchMetrics, fetchRiskScore]);
+  const analyzeAlert = async (alertId) => {
+    setAnalyzing(true);
+    try {
+      const response = await fetch(`${API_URL}/soc/analyze/${alertId}`, {
+        method: 'POST'
+      });
+      const data = await response.json();
+      alert('Analysis complete! Check SOC Analyst tab.');
+      fetchRuleRecommendations();
+    } catch (error) {
+      console.error('Error analyzing alert:', error);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   const getSeverityColor = (severity) => {
-    if (severity === 'critical' || severity >= 12) return 'bg-red-500';
-    if (severity === 'high' || severity >= 8) return 'bg-orange-500';
-    if (severity === 'medium' || severity >= 5) return 'bg-yellow-500';
+    const sev = typeof severity === 'string' ? severity.toLowerCase() : '';
+    if (sev === 'critical' || severity >= 12) return 'bg-red-500';
+    if (sev === 'high' || severity >= 8) return 'bg-orange-500';
+    if (sev === 'medium' || severity >= 5) return 'bg-yellow-500';
     return 'bg-blue-500';
   };
 
+  const getActionIcon = (action) => {
+    if (action === 'CREATE') return <Zap className="w-4 h-4 text-green-400" />;
+    if (action === 'MODIFY') return <RefreshCw className="w-4 h-4 text-blue-400" />;
+    if (action === 'DISABLE') return <AlertCircle className="w-4 h-4 text-red-400" />;
+    return null;
+  };
+
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
+    <div className="min-h-screen bg-gray-900 text-white">
       {/* Header */}
-      <div className="mb-8">
+      <div className="bg-gray-800 border-b border-gray-700 p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <Shield className="w-10 h-10 text-cyan-400" />
             <div>
-              <h1 className="text-3xl font-bold">Security AI Dashboard</h1>
-              <p className="text-gray-400">Real-time Threat Detection & Response</p>
+              <h1 className="text-3xl font-bold">AI Security Operations Center</h1>
+              <p className="text-gray-400">Intelligent Detection & Response Platform</p>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <div className={`w-3 h-3 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
-            <span className="text-sm">{connected ? 'Connected' : 'Disconnected'}</span>
+          <div className="flex space-x-3">
+            <button
+              onClick={runSecurityAudit}
+              disabled={scanning}
+              className="bg-purple-600 hover:bg-purple-700 px-6 py-3 rounded-lg font-semibold flex items-center space-x-2 disabled:opacity-50"
+            >
+              {scanning ? (
+                <>
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                  <span>Scanning...</span>
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="w-5 h-5" />
+                  <span>Run Security Audit</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-gray-400 text-sm">Risk Score</p>
-              <p className="text-3xl font-bold">{riskScore.risk_score || 0}</p>
-              <p className={`text-sm ${getSeverityColor(riskScore.severity)} inline-block px-2 py-1 rounded mt-1`}>
-                {riskScore.severity?.toUpperCase() || 'LOW'}
-              </p>
-            </div>
-            <Target className="w-10 h-10 text-red-400" />
-          </div>
-        </div>
-
+      {/* Stats Bar */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-6">
         <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-400 text-sm">Total Alerts</p>
-              <p className="text-3xl font-bold">{metrics.total_alerts}</p>
-              <p className="text-sm text-gray-500">Last 24h</p>
+              <p className="text-3xl font-bold text-cyan-400">{stats.totalAlerts}</p>
             </div>
-            <AlertTriangle className="w-10 h-10 text-orange-400" />
+            <AlertTriangle className="w-10 h-10 text-cyan-400 opacity-50" />
           </div>
         </div>
 
         <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-400 text-sm">Anomalies</p>
-              <p className="text-3xl font-bold">{metrics.total_anomalies}</p>
-              <p className="text-sm text-gray-500">ML Detected</p>
+              <p className="text-gray-400 text-sm">Critical Alerts</p>
+              <p className="text-3xl font-bold text-red-400">{stats.criticalAlerts}</p>
             </div>
-            <Activity className="w-10 h-10 text-purple-400" />
+            <AlertCircle className="w-10 h-10 text-red-400 opacity-50" />
           </div>
         </div>
 
         <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-400 text-sm">MTTD</p>
-              <p className="text-3xl font-bold">{metrics.avg_mttd.toFixed(1)}s</p>
-              <p className="text-sm text-gray-500">Mean Time to Detect</p>
+              <p className="text-gray-400 text-sm">Rules Created</p>
+              <p className="text-3xl font-bold text-green-400">{stats.rulesCreated}</p>
             </div>
-            <Clock className="w-10 h-10 text-cyan-400" />
+            <Brain className="w-10 h-10 text-green-400 opacity-50" />
           </div>
         </div>
 
         <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-400 text-sm">Detection Rate</p>
-              <p className="text-3xl font-bold">{metrics.detection_rate.toFixed(1)}%</p>
-              <p className="text-sm text-gray-500">Accuracy</p>
+              <p className="text-gray-400 text-sm">Vulnerabilities</p>
+              <p className="text-3xl font-bold text-orange-400">{stats.vulnerabilitiesFound}</p>
             </div>
-            <TrendingUp className="w-10 h-10 text-green-400" />
+            <Code className="w-10 h-10 text-orange-400 opacity-50" />
+          </div>
+        </div>
+
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-400 text-sm">Attacks Validated</p>
+              <p className="text-3xl font-bold text-purple-400">{stats.attacksValidated}</p>
+            </div>
+            <Activity className="w-10 h-10 text-purple-400 opacity-50" />
           </div>
         </div>
       </div>
 
-      {/* Attack Launcher */}
-      <div className="bg-gray-800 rounded-lg p-4 mb-8 border border-gray-700">
-        <h3 className="text-xl font-bold mb-4 flex items-center">
-          <Zap className="w-5 h-5 mr-2 text-yellow-400" />
-          Launch Attack Scenario (Demo)
-        </h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {['sqli', 'brute', 'xss', 'scan', 'dos', 'combo'].map(scenario => (
+      {/* Navigation Tabs */}
+      <div className="border-b border-gray-700 px-6">
+        <div className="flex space-x-2">
+          {[
+            { id: 'overview', label: 'Overview', icon: Activity },
+            { id: 'soc', label: 'AI SOC Analyst', icon: Bot },
+            { id: 'auditor', label: 'AI Security Auditor', icon: FileCode },
+            { id: 'alerts', label: 'Live Alerts', icon: AlertTriangle }
+          ].map(tab => (
             <button
-              key={scenario}
-              onClick={() => launchAttack(scenario)}
-              className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded font-semibold transition"
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center space-x-2 px-6 py-3 border-b-2 transition ${
+                activeTab === tab.id
+                  ? 'border-cyan-400 text-cyan-400'
+                  : 'border-transparent text-gray-400 hover:text-white'
+              }`}
             >
-              {scenario.toUpperCase()}
+              <tab.icon className="w-5 h-5" />
+              <span className="font-semibold">{tab.label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Alerts List */}
-        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-          <h3 className="text-xl font-bold mb-4">Recent Alerts</h3>
-          <div className="space-y-3 max-h-96 overflow-y-auto">
-            {alerts.slice(0, 10).map((alert, idx) => (
-              <div
-                key={idx}
-                onClick={() => {
-                  setSelectedAlert(alert);
-                  fetchSOCReport(alert.alert_id);
-                }}
-                className="bg-gray-700 rounded p-3 cursor-pointer hover:bg-gray-600 transition"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold">{alert.rule_description || 'Security Alert'}</span>
-                  <span className={`px-2 py-1 rounded text-xs ${getSeverityColor(alert.severity)}`}>
-                    {alert.severity}
-                  </span>
-                </div>
-                <div className="text-sm text-gray-400 space-y-1">
-                  <div>Host: {alert.host}</div>
-                  <div className="flex justify-between">
-                    <span>Risk: {alert.risk_score?.toFixed(2) || '0.00'}</span>
-                    <span>Anomaly: {alert.anomaly_score?.toFixed(3) || '0.000'}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {alerts.length === 0 && (
-              <div className="text-center text-gray-500 py-8">
-                <CheckCircle className="w-12 h-12 mx-auto mb-2" />
-                <p>No alerts detected. System is secure.</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* SOC Report */}
-        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-          <h3 className="text-xl font-bold mb-4">SOC Analyst Report</h3>
-          {loading ? (
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mx-auto" />
-              <p className="mt-4 text-gray-400">Generating AI report...</p>
-            </div>
-          ) : socReport ? (
-            <div className="space-y-4 max-h-96 overflow-y-auto">
-              <div>
-                <h4 className="font-bold text-lg text-cyan-400">{socReport.title}</h4>
-                <span className={`inline-block px-3 py-1 rounded mt-2 ${getSeverityColor(socReport.severity)}`}>
-                  {socReport.severity?.toUpperCase()} - {socReport.confidence}% Confidence
-                </span>
-              </div>
-              
-              <div>
-                <h5 className="font-semibold text-yellow-400 mb-2">Summary</h5>
-                <p className="text-sm text-gray-300">{socReport.summary}</p>
-              </div>
-              
-              <div>
-                <h5 className="font-semibold text-yellow-400 mb-2">Evidence</h5>
-                <div className="space-y-1 text-sm">
-                  {Object.entries(socReport.evidence || {}).map(([key, value], idx) => (
-                    <div key={idx} className="bg-gray-700 rounded px-2 py-1">
-                      <span className="text-gray-400">{key}:</span> {JSON.stringify(value)}
+      {/* Content Area */}
+      <div className="p-6">
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Recent Alerts */}
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h3 className="text-xl font-bold mb-4 flex items-center">
+                <AlertTriangle className="w-6 h-6 mr-2 text-cyan-400" />
+                Recent Alerts
+              </h3>
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {alerts.slice(0, 5).map((alert, idx) => (
+                  <div key={idx} className="bg-gray-700 rounded p-3 hover:bg-gray-600 transition">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-semibold">{alert.rule_description || 'Security Event'}</span>
+                      <span className={`px-2 py-1 rounded text-xs ${getSeverityColor(alert.severity)}`}>
+                        {alert.severity}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              </div>
-              
-              <div>
-                <h5 className="font-semibold text-yellow-400 mb-2">Immediate Actions</h5>
-                <ul className="list-disc list-inside text-sm space-y-1">
-                  {(socReport.immediate_actions || []).map((action, idx) => (
-                    <li key={idx} className="text-gray-300">{action}</li>
-                  ))}
-                </ul>
-              </div>
-              
-              <div className="flex space-x-2 pt-4">
-                <button
-                  onClick={() => executeResponse('block_ip', selectedAlert?.host, selectedAlert?.alert_id)}
-                  className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded flex-1 font-semibold"
-                >
-                  Block IP
-                </button>
-                <button
-                  onClick={() => executeResponse('isolate_host', selectedAlert?.host, selectedAlert?.alert_id)}
-                  className="bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded flex-1 font-semibold"
-                >
-                  Isolate Host
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center text-gray-500 py-12">
-              <AlertTriangle className="w-12 h-12 mx-auto mb-2" />
-              <p>Select an alert to view AI-generated report</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Anomalies Section */}
-      <div className="bg-gray-800 rounded-lg p-4 mt-6 border border-gray-700">
-        <h3 className="text-xl font-bold mb-4">Anomaly Detection Timeline</h3>
-        <div className="space-y-2 max-h-64 overflow-y-auto">
-          {anomalies.slice(0, 10).map((anomaly, idx) => (
-            <div
-              key={idx}
-              className={`rounded p-3 ${anomaly.is_anomaly ? 'bg-red-900 border border-red-600' : 'bg-gray-700'}`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="font-semibold">{anomaly.host}</span>
-                  <span className="text-sm text-gray-400 ml-4">
-                    Score: {anomaly.anomaly_score?.toFixed(3)}
-                  </span>
-                </div>
-                {anomaly.is_anomaly && (
-                  <span className="bg-red-600 px-2 py-1 rounded text-xs font-bold">ANOMALY</span>
+                    <div className="text-sm text-gray-400">
+                      <div>Host: {alert.host}</div>
+                      <div>Time: {new Date(alert.timestamp).toLocaleString()}</div>
+                    </div>
+                  </div>
+                ))}
+                {alerts.length === 0 && (
+                  <div className="text-center text-gray-500 py-8">
+                    <CheckCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>No alerts detected. System is secure.</p>
+                  </div>
                 )}
               </div>
-              {anomaly.top_features && (
-                <div className="text-xs text-gray-400 mt-2">
-                  Features: {Object.keys(anomaly.top_features).join(', ')}
+            </div>
+
+            {/* Rule Recommendations Preview */}
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h3 className="text-xl font-bold mb-4 flex items-center">
+                <Brain className="w-6 h-6 mr-2 text-green-400" />
+                AI Rule Recommendations
+              </h3>
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {ruleRecommendations.slice(0, 5).map((rec, idx) => (
+                  <div key={idx} className="bg-gray-700 rounded p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center space-x-2">
+                        {getActionIcon(rec.action)}
+                        <span className="font-semibold">{rec.action} Rule</span>
+                      </div>
+                      <span className="text-xs text-gray-400">{rec.confidence}% confidence</span>
+                    </div>
+                    <div className="text-sm text-gray-300 mb-2">{rec.rule_id}</div>
+                    <div className="text-xs text-gray-400">{rec.reason}</div>
+                  </div>
+                ))}
+                {ruleRecommendations.length === 0 && (
+                  <div className="text-center text-gray-500 py-8">
+                    <Bot className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>No recommendations yet. AI is learning...</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'soc' && (
+          <div className="space-y-6">
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h2 className="text-2xl font-bold mb-4 flex items-center">
+                <Bot className="w-8 h-8 mr-3 text-cyan-400" />
+                AI SOC Analyst - Rule Recommendations
+              </h2>
+              <p className="text-gray-400 mb-6">
+                AI analyzes alerts and automatically recommends new rules, modifications, and optimizations
+              </p>
+
+              <div className="space-y-4">
+                {ruleRecommendations.map((rec, idx) => (
+                  <div key={idx} className="bg-gray-700 rounded-lg p-5 border border-gray-600">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center space-x-3">
+                        {getActionIcon(rec.action)}
+                        <div>
+                          <h3 className="text-lg font-bold text-white">{rec.action} RULE</h3>
+                          <p className="text-sm text-gray-400">Rule ID: {rec.rule_id}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        <span className="text-sm text-gray-400">
+                          Confidence: <span className="text-cyan-400 font-bold">{rec.confidence}%</span>
+                        </span>
+                        <button
+                          onClick={() => applyRuleRecommendation(rec.id)}
+                          className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded text-sm font-semibold"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-sm text-gray-400 mb-1">Reason:</p>
+                        <p className="text-gray-200">{rec.reason}</p>
+                      </div>
+
+                      {rec.current_pattern && (
+                        <div>
+                          <p className="text-sm text-gray-400 mb-1">Current Pattern:</p>
+                          <code className="block bg-gray-800 p-2 rounded text-red-400 text-sm">
+                            {rec.current_pattern}
+                          </code>
+                        </div>
+                      )}
+
+                      {rec.suggested_pattern && (
+                        <div>
+                          <p className="text-sm text-gray-400 mb-1">Suggested Pattern:</p>
+                          <code className="block bg-gray-800 p-2 rounded text-green-400 text-sm">
+                            {rec.suggested_pattern}
+                          </code>
+                        </div>
+                      )}
+
+                      <div className="flex items-center space-x-4 text-xs text-gray-400">
+                        <span>Severity: {rec.severity}</span>
+                        <span>Evidence: {rec.evidence_count} similar attacks</span>
+                        <span>Generated: {new Date(rec.timestamp).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'auditor' && (
+          <div className="space-y-6">
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h2 className="text-2xl font-bold mb-4 flex items-center">
+                <FileCode className="w-8 h-8 mr-3 text-purple-400" />
+                AI Security Auditor - Code Analysis & Attack Validation
+              </h2>
+
+              {auditReport ? (
+                <div className="space-y-6">
+                  {/* Summary */}
+                  <div className="grid grid-cols-4 gap-4">
+                    <div className="bg-gray-700 rounded p-4 text-center">
+                      <p className="text-3xl font-bold text-purple-400">{auditReport.files_analyzed || 0}</p>
+                      <p className="text-sm text-gray-400">Files Analyzed</p>
+                    </div>
+                    <div className="bg-gray-700 rounded p-4 text-center">
+                      <p className="text-3xl font-bold text-red-400">{auditReport.vulnerabilities?.length || 0}</p>
+                      <p className="text-sm text-gray-400">Vulnerabilities</p>
+                    </div>
+                    <div className="bg-gray-700 rounded p-4 text-center">
+                      <p className="text-3xl font-bold text-orange-400">
+                        {auditReport.vulnerabilities?.filter(v => v.validated).length || 0}
+                      </p>
+                      <p className="text-sm text-gray-400">Validated</p>
+                    </div>
+                    <div className="bg-gray-700 rounded p-4 text-center">
+                      <p className="text-3xl font-bold text-cyan-400">{auditReport.cvss_avg?.toFixed(1) || 0}</p>
+                      <p className="text-sm text-gray-400">Avg CVSS Score</p>
+                    </div>
+                  </div>
+
+                  {/* Vulnerabilities */}
+                  <div className="space-y-4">
+                    {auditReport.vulnerabilities?.map((vuln, idx) => (
+                      <div key={idx} className="bg-gray-700 rounded-lg p-5 border border-gray-600">
+                        <div className="flex items-start justify-between mb-4">
+                          <div>
+                            <h3 className="text-lg font-bold text-white flex items-center">
+                              {vuln.type}
+                              {vuln.validated && (
+                                <CheckCircle className="w-5 h-5 ml-2 text-green-400" />
+                              )}
+                            </h3>
+                            <p className="text-sm text-gray-400">{vuln.file}:{vuln.line}</p>
+                          </div>
+                          <span className={`px-3 py-1 rounded ${getSeverityColor(vuln.severity)}`}>
+                            {vuln.severity.toUpperCase()}
+                          </span>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-sm text-gray-400 mb-1">Vulnerable Code:</p>
+                            <code className="block bg-gray-800 p-3 rounded text-red-400 text-sm font-mono">
+                              {vuln.code}
+                            </code>
+                          </div>
+
+                          {vuln.validated && (
+                            <div>
+                              <p className="text-sm text-green-400 mb-1">✓ Attack Validated:</p>
+                              <code className="block bg-gray-800 p-3 rounded text-yellow-400 text-sm">
+                                Payload: {vuln.attack_payload}
+                              </code>
+                            </div>
+                          )}
+
+                          <div>
+                            <p className="text-sm text-gray-400 mb-1">Remediation:</p>
+                            <code className="block bg-gray-800 p-3 rounded text-green-400 text-sm font-mono">
+                              {vuln.remediation}
+                            </code>
+                          </div>
+
+                          <div className="flex items-center space-x-4 text-xs text-gray-400">
+                            <span>CVSS: {vuln.cvss_score}</span>
+                            <span>CWE-{vuln.cwe_id}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <FileCode className="w-16 h-16 mx-auto mb-4 text-purple-400 opacity-50" />
+                  <p className="text-gray-400 mb-4">Click "Run Security Audit" to analyze code and validate vulnerabilities</p>
                 </div>
               )}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
+
+        {activeTab === 'alerts' && (
+          <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+            <h2 className="text-2xl font-bold mb-4 flex items-center">
+              <AlertTriangle className="w-8 h-8 mr-3 text-orange-400" />
+              Live Security Alerts
+            </h2>
+            <div className="space-y-3">
+              {alerts.map((alert, idx) => (
+                <div key={idx} className="bg-gray-700 rounded-lg p-4 hover:bg-gray-600 transition">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-3">
+                      <span className={`w-3 h-3 rounded-full ${getSeverityColor(alert.severity)}`}></span>
+                      <span className="font-bold text-lg">{alert.rule_description || 'Security Event'}</span>
+                    </div>
+                    <button
+                      onClick={() => analyzeAlert(alert.id)}
+                      disabled={analyzing}
+                      className="bg-cyan-600 hover:bg-cyan-700 px-4 py-2 rounded text-sm font-semibold disabled:opacity-50"
+                    >
+                      {analyzing ? 'Analyzing...' : 'Analyze with AI'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-400">Host:</span>
+                      <span className="ml-2 text-white">{alert.host}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Rule ID:</span>
+                      <span className="ml-2 text-white">{alert.rule_id}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Time:</span>
+                      <span className="ml-2 text-white">{new Date(alert.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
