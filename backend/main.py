@@ -66,6 +66,25 @@ class DetectionRule(Base):
     auto_generated = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class IncidentReport(Base):
+    __tablename__ = "incident_reports"
+    id = Column(Integer, primary_key=True)
+    alert_id = Column(Integer)
+    severity = Column(String)
+    attack_type = Column(String)
+    attack_pattern = Column(String)
+    is_false_positive = Column(Boolean, default=False)
+    is_true_positive = Column(Boolean, default=True)
+    threat_level = Column(String)
+    source_ip = Column(String)
+    affected_host = Column(String)
+    attack_success = Column(String)
+    evidence = Column(Text)
+    analysis_summary = Column(Text)
+    recommended_actions = Column(JSON)
+    full_report = Column(Text)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
 Base.metadata.create_all(engine)
 
 # FastAPI app
@@ -204,6 +223,37 @@ async def create_rule(rule: RuleCreate):
     finally:
         db.close()
 
+@app.get("/soc/incidents")
+async def get_incident_reports(limit: int = 20):
+    db = SessionLocal()
+    try:
+        reports = db.query(IncidentReport).order_by(
+            IncidentReport.timestamp.desc()
+        ).limit(limit).all()
+        
+        return [
+            {
+                "id": r.id,
+                "alert_id": r.alert_id,
+                "severity": r.severity,
+                "attack_type": r.attack_type,
+                "attack_pattern": r.attack_pattern,
+                "is_false_positive": r.is_false_positive,
+                "is_true_positive": r.is_true_positive,
+                "threat_level": r.threat_level,
+                "source_ip": r.source_ip,
+                "affected_host": r.affected_host,
+                "attack_success": r.attack_success,
+                "analysis_summary": r.analysis_summary,
+                "recommended_actions": r.recommended_actions,
+                "full_report": r.full_report,
+                "timestamp": r.timestamp.isoformat()
+            }
+            for r in reports
+        ]
+    finally:
+        db.close()
+
 @app.get("/soc/rule-recommendations")
 async def get_rule_recommendations():
     db = SessionLocal()
@@ -289,8 +339,9 @@ async def analyze_alert(alert_id: int, background_tasks: BackgroundTasks):
 
 @app.post("/auditor/scan")
 async def run_security_audit(request: ScanRequest, background_tasks: BackgroundTasks):
+    # Start scan immediately in background
     background_tasks.add_task(perform_security_scan, request.target, request.validate_attacks)
-    return {"status": "scanning", "target": request.target}
+    return {"status": "started", "target": request.target, "message": "Scan started, check /auditor/results in 10-15 seconds"}
 
 @app.get("/auditor/results")
 async def get_audit_results():

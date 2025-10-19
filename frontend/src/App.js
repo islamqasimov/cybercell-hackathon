@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Bot, Code, AlertTriangle, CheckCircle, Brain, FileCode, Activity, Zap, TrendingUp, AlertCircle, PlayCircle, RefreshCw } from 'lucide-react';
+import { Shield, Bot, Code, AlertTriangle, CheckCircle, Brain, FileCode, Activity, Zap, TrendingUp, AlertCircle, PlayCircle, RefreshCw, FileText } from 'lucide-react';
 
 const API_URL = 'http://localhost:8000';
 
@@ -7,6 +7,7 @@ export default function AISecurityDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [alerts, setAlerts] = useState([]);
   const [ruleRecommendations, setRuleRecommendations] = useState([]);
+  const [incidentReports, setIncidentReports] = useState([]);
   const [auditReport, setAuditReport] = useState(null);
   const [stats, setStats] = useState({
     totalAlerts: 0,
@@ -17,19 +18,26 @@ export default function AISecurityDashboard() {
   });
   const [scanning, setScanning] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [selectedIncident, setSelectedIncident] = useState(null);
 
-  // Fetch data
   useEffect(() => {
     fetchAlerts();
     fetchRuleRecommendations();
+    fetchIncidentReports();
     fetchStats();
+    fetchAuditResults();
+    
     const interval = setInterval(() => {
       fetchAlerts();
       fetchRuleRecommendations();
+      fetchIncidentReports();
       fetchStats();
+      if (scanning) {
+        fetchAuditResults();
+      }
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [scanning]);
 
   const fetchAlerts = async () => {
     try {
@@ -51,6 +59,16 @@ export default function AISecurityDashboard() {
     }
   };
 
+  const fetchIncidentReports = async () => {
+    try {
+      const response = await fetch(`${API_URL}/soc/incidents`);
+      const data = await response.json();
+      setIncidentReports(data);
+    } catch (error) {
+      console.error('Error fetching incident reports:', error);
+    }
+  };
+
   const fetchStats = async () => {
     try {
       const response = await fetch(`${API_URL}/stats`);
@@ -58,6 +76,22 @@ export default function AISecurityDashboard() {
       setStats(data);
     } catch (error) {
       console.error('Error fetching stats:', error);
+    }
+  };
+
+  const fetchAuditResults = async () => {
+    try {
+      const response = await fetch(`${API_URL}/auditor/results`);
+      const data = await response.json();
+      if (data.vulnerabilities && data.vulnerabilities.length > 0) {
+        setAuditReport(data);
+        if (scanning) {
+          setScanning(false);
+          setActiveTab('auditor');
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching audit results:', error);
     }
   };
 
@@ -70,36 +104,43 @@ export default function AISecurityDashboard() {
         body: JSON.stringify({ target: 'juiceshop', validate_attacks: true })
       });
       const data = await response.json();
-      setAuditReport(data);
-      setActiveTab('auditor');
+      console.log('Scan started:', data);
+      
+      setTimeout(() => {
+        fetchAuditResults();
+      }, 15000);
     } catch (error) {
       console.error('Error running audit:', error);
-    } finally {
       setScanning(false);
     }
   };
 
-  const applyRuleRecommendation = async (ruleId) => {
+  const applyRuleRecommendation = async (recId) => {
     try {
-      await fetch(`${API_URL}/soc/apply-recommendation/${ruleId}`, {
+      const response = await fetch(`${API_URL}/soc/apply-recommendation/${recId}`, {
         method: 'POST'
       });
-      alert('Rule recommendation applied!');
+      const result = await response.json();
+      alert(`✓ Rule ${result.action} applied successfully!`);
       fetchRuleRecommendations();
+      fetchStats();
     } catch (error) {
       console.error('Error applying recommendation:', error);
+      alert('Error applying recommendation');
     }
   };
 
   const analyzeAlert = async (alertId) => {
     setAnalyzing(true);
     try {
-      const response = await fetch(`${API_URL}/soc/analyze/${alertId}`, {
+      await fetch(`${API_URL}/soc/analyze/${alertId}`, {
         method: 'POST'
       });
-      const data = await response.json();
-      alert('Analysis complete! Check SOC Analyst tab.');
-      fetchRuleRecommendations();
+      alert('✓ Analysis started! Check SOC Analyst tab in 10 seconds.');
+      setTimeout(() => {
+        fetchRuleRecommendations();
+        fetchIncidentReports();
+      }, 10000);
     } catch (error) {
       console.error('Error analyzing alert:', error);
     } finally {
@@ -124,7 +165,6 @@ export default function AISecurityDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
       <div className="bg-gray-800 border-b border-gray-700 p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
@@ -156,7 +196,6 @@ export default function AISecurityDashboard() {
         </div>
       </div>
 
-      {/* Stats Bar */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-6">
         <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
           <div className="flex items-center justify-between">
@@ -209,13 +248,13 @@ export default function AISecurityDashboard() {
         </div>
       </div>
 
-      {/* Navigation Tabs */}
       <div className="border-b border-gray-700 px-6">
         <div className="flex space-x-2">
           {[
             { id: 'overview', label: 'Overview', icon: Activity },
-            { id: 'soc', label: 'AI SOC Analyst', icon: Bot },
-            { id: 'auditor', label: 'AI Security Auditor', icon: FileCode },
+            { id: 'incidents', label: 'Incident Reports', icon: FileText },
+            { id: 'soc', label: 'Rule Recommendations', icon: Bot },
+            { id: 'auditor', label: 'Security Auditor', icon: FileCode },
             { id: 'alerts', label: 'Live Alerts', icon: AlertTriangle }
           ].map(tab => (
             <button
@@ -234,11 +273,9 @@ export default function AISecurityDashboard() {
         </div>
       </div>
 
-      {/* Content Area */}
       <div className="p-6">
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Recent Alerts */}
             <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
               <h3 className="text-xl font-bold mb-4 flex items-center">
                 <AlertTriangle className="w-6 h-6 mr-2 text-cyan-400" />
@@ -268,7 +305,6 @@ export default function AISecurityDashboard() {
               </div>
             </div>
 
-            {/* Rule Recommendations Preview */}
             <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
               <h3 className="text-xl font-bold mb-4 flex items-center">
                 <Brain className="w-6 h-6 mr-2 text-green-400" />
@@ -285,13 +321,111 @@ export default function AISecurityDashboard() {
                       <span className="text-xs text-gray-400">{rec.confidence}% confidence</span>
                     </div>
                     <div className="text-sm text-gray-300 mb-2">{rec.rule_id}</div>
-                    <div className="text-xs text-gray-400">{rec.reason}</div>
+                    <div className="text-xs text-gray-400">{rec.reason.substring(0, 100)}...</div>
                   </div>
                 ))}
                 {ruleRecommendations.length === 0 && (
                   <div className="text-center text-gray-500 py-8">
                     <Bot className="w-12 h-12 mx-auto mb-2 opacity-50" />
                     <p>No recommendations yet. AI is learning...</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'incidents' && (
+          <div className="space-y-6">
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h2 className="text-2xl font-bold mb-4 flex items-center">
+                <FileText className="w-8 h-8 mr-3 text-cyan-400" />
+                AI-Generated Incident Reports
+              </h2>
+              <p className="text-gray-400 mb-6">
+                Comprehensive analysis of each security alert with false positive detection
+              </p>
+
+              <div className="space-y-4">
+                {incidentReports.map((report, idx) => (
+                  <div key={idx} className="bg-gray-700 rounded-lg p-5 border border-gray-600">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-bold text-white flex items-center">
+                          {report.is_false_positive ? (
+                            <AlertCircle className="w-5 h-5 mr-2 text-yellow-400" />
+                          ) : (
+                            <CheckCircle className="w-5 h-5 mr-2 text-green-400" />
+                          )}
+                          INC-{String(report.id).padStart(6, '0')}
+                        </h3>
+                        <p className="text-sm text-gray-400">
+                          {report.attack_type} - {report.threat_level} Threat
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        <span className={`px-3 py-1 rounded text-sm ${getSeverityColor(report.severity)}`}>
+                          {report.severity}
+                        </span>
+                        <button
+                          onClick={() => setSelectedIncident(report)}
+                          className="bg-cyan-600 hover:bg-cyan-700 px-4 py-2 rounded text-sm font-semibold"
+                        >
+                          View Full Report
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <p className="text-xs text-gray-400">Source IP</p>
+                        <p className="text-sm text-white">{report.source_ip}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400">Attack Pattern</p>
+                        <p className="text-sm text-white">{report.attack_pattern}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400">Attack Success</p>
+                        <p className="text-sm text-white">{report.attack_success}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400">Status</p>
+                        <p className="text-sm text-white">
+                          {report.is_false_positive ? '⚠️ False Positive' : '✓ True Positive'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mb-4">
+                      <p className="text-sm text-gray-400 mb-2">AI Analysis Summary:</p>
+                      <p className="text-sm text-gray-200 bg-gray-800 p-3 rounded">
+                        {report.analysis_summary}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-sm text-gray-400 mb-2">Recommended Actions:</p>
+                      <div className="space-y-1">
+                        {report.recommended_actions && report.recommended_actions.map((action, i) => (
+                          <div key={i} className="text-sm text-gray-300 flex items-start">
+                            <span className="text-cyan-400 mr-2">{i + 1}.</span>
+                            <span>{action}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 text-xs text-gray-500">
+                      Generated: {new Date(report.timestamp).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+
+                {incidentReports.length === 0 && (
+                  <div className="text-center text-gray-500 py-12">
+                    <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                    <p>No incident reports yet. Analyze alerts to generate reports.</p>
                   </div>
                 )}
               </div>
@@ -366,6 +500,13 @@ export default function AISecurityDashboard() {
                     </div>
                   </div>
                 ))}
+
+                {ruleRecommendations.length === 0 && (
+                  <div className="text-center text-gray-500 py-12">
+                    <Bot className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                    <p>No recommendations yet. Create alerts or run security audit to generate recommendations.</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -381,14 +522,13 @@ export default function AISecurityDashboard() {
 
               {auditReport ? (
                 <div className="space-y-6">
-                  {/* Summary */}
                   <div className="grid grid-cols-4 gap-4">
                     <div className="bg-gray-700 rounded p-4 text-center">
                       <p className="text-3xl font-bold text-purple-400">{auditReport.files_analyzed || 0}</p>
                       <p className="text-sm text-gray-400">Files Analyzed</p>
                     </div>
                     <div className="bg-gray-700 rounded p-4 text-center">
-                      <p className="text-3xl font-bold text-red-400">{auditReport.vulnerabilities?.length || 0}</p>
+                      <p className="text-3xl font-bold text-red-400">{auditReport.total_vulnerabilities || 0}</p>
                       <p className="text-sm text-gray-400">Vulnerabilities</p>
                     </div>
                     <div className="bg-gray-700 rounded p-4 text-center">
@@ -403,7 +543,6 @@ export default function AISecurityDashboard() {
                     </div>
                   </div>
 
-                  {/* Vulnerabilities */}
                   <div className="space-y-4">
                     {auditReport.vulnerabilities?.map((vuln, idx) => (
                       <div key={idx} className="bg-gray-700 rounded-lg p-5 border border-gray-600">
@@ -448,7 +587,7 @@ export default function AISecurityDashboard() {
 
                           <div className="flex items-center space-x-4 text-xs text-gray-400">
                             <span>CVSS: {vuln.cvss_score}</span>
-                            <span>CWE-{vuln.cwe_id}</span>
+                            <span>{vuln.cwe_id}</span>
                           </div>
                         </div>
                       </div>
@@ -459,6 +598,9 @@ export default function AISecurityDashboard() {
                 <div className="text-center py-12">
                   <FileCode className="w-16 h-16 mx-auto mb-4 text-purple-400 opacity-50" />
                   <p className="text-gray-400 mb-4">Click "Run Security Audit" to analyze code and validate vulnerabilities</p>
+                  {scanning && (
+                    <p className="text-cyan-400 animate-pulse">Scanning in progress... Results will appear shortly</p>
+                  )}
                 </div>
               )}
             </div>
@@ -507,6 +649,25 @@ export default function AISecurityDashboard() {
           </div>
         )}
       </div>
+
+      {selectedIncident && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50" onClick={() => setSelectedIncident(null)}>
+          <div className="bg-gray-800 rounded-lg p-6 max-w-4xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-2xl font-bold">Full Incident Report</h3>
+              <button
+                onClick={() => setSelectedIncident(null)}
+                className="text-gray-400 hover:text-white text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <pre className="bg-gray-900 p-4 rounded text-sm text-green-400 font-mono whitespace-pre-wrap">
+              {selectedIncident.full_report}
+            </pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

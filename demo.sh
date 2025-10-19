@@ -110,8 +110,12 @@ sleep 3
 echo -e "\n${YELLOW}Analyzing alert #2...${NC}"
 curl -X POST $API_URL/soc/analyze/2
 
-echo -e "\n\n${YELLOW}Waiting for AI analysis... (10 seconds)${NC}"
-sleep 10
+echo -e "\n\n${YELLOW}Waiting for AI analysis... (20 seconds)${NC}"
+for i in {20..1}; do
+    echo -ne "\r${CYAN}Time remaining: ${i} seconds ${NC}"
+    sleep 1
+done
+echo -e "\n"
 
 # Scene 5: Show Rule Recommendations
 echo -e "\n${CYAN}═══ SCENE 5: AI-Generated Rule Recommendations ═══${NC}\n"
