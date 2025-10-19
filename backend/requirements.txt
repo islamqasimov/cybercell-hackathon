@@ -7,3 +7,11 @@ requests==2.31.0
 python-multipart==0.0.6
 aiohttp==3.9.1
 python-dotenv==1.0.0
+
+# Machine Learning Libraries
+scikit-learn==1.3.2
+numpy==1.26.2
+pandas==2.1.3
+
+# Optional: For more advanced ML
+scipy==1.11.4
